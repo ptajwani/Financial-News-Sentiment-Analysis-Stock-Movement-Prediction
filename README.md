@@ -1,4 +1,4 @@
-#Financial News Sentiment & Stock Prediction
+###Financial News Sentiment & Stock Prediction
 
 Analyze how financial news sentiment impacts short-term stock price movement using NLP and ML models.
 
