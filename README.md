@@ -23,3 +23,11 @@ Analyze how financial news sentiment impacts short-term stock price movement usi
 
 ## Team:
 Deepika, Mishti, Paransha, Romaisa, Varshini
+
+
+## Setup:
+```
+python3 -m venv stock_env
+pip install -r requirements.txt
+```
+
