@@ -31,3 +31,11 @@ python3 -m venv stock_env
 pip install -r requirements.txt
 ```
 
+### To Generate Final Merged Files
+
+Run:
+
+```bash
+python3 merge_sentiment.py
+
+
