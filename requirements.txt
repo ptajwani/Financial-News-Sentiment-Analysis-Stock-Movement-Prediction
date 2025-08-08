@@ -6,3 +6,7 @@ torch
 scikit-learn
 datasets
 polars
+matplotlib
+seaborn
+plotly
+numpy

@@ -1,0 +1,361 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import warnings
+warnings.filterwarnings('ignore')
+
+# Set style for better visualizations
+plt.style.use('default')
+sns.set_palette("husl")
+
+# Load the merged datasets
+def load_stock_data():
+    """Load all merged stock datasets"""
+    stocks = ['AAPL', 'TSLA', 'MSFT', 'AMZN']
+    stock_data = {}
+    
+    for stock in stocks:
+        try:
+            # Updated file path to match your structure
+            df = pd.read_csv(f'../Data/{stock}_merged.csv')
+            df['date'] = pd.to_datetime(df['date'])
+            
+            # Calculate movement percentage if not exists
+            if 'movement_pct' not in df.columns:
+                df['movement_pct'] = (df['movement'] / df['open']) * 100
+            
+            stock_data[stock] = df
+            print(f"Loaded {stock}: {len(df)} records")
+        except FileNotFoundError:
+            print(f"Error: {stock}_merged.csv not found in Data folder")
+    
+    return stock_data
+
+# Define sector classifications
+SECTOR_MAPPING = {
+    'AAPL': 'Technology',
+    'MSFT': 'Technology', 
+    'TSLA': 'Automotive/Energy',
+    'AMZN': 'Consumer Discretionary'
+}
+
+def create_sentiment_distribution_plot(stock_data):
+    """Create sentiment distribution visualization"""
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    fig.suptitle('Sentiment Distribution Across Stocks', fontsize=16, fontweight='bold')
+    
+    stocks = list(stock_data.keys())
+    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A']
+    
+    for i, stock in enumerate(stocks):
+        ax = axes[i//2, i%2]
+        df = stock_data[stock]
+        
+        # Count sentiment labels
+        sentiment_counts = df['label'].value_counts()
+        
+        # Create pie chart
+        ax.pie(sentiment_counts.values, labels=sentiment_counts.index, autopct='%1.1f%%',
+               colors=colors, startangle=90)
+        ax.set_title(f'{stock} - {SECTOR_MAPPING[stock]}', fontweight='bold')
+    
+    plt.tight_layout()
+    plt.show()
+
+def create_sentiment_vs_movement_scatter(stock_data):
+    """Create scatter plot of sentiment vs stock movement"""
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('Sentiment Score vs Stock Price Movement', fontsize=16, fontweight='bold')
+    
+    stocks = list(stock_data.keys())
+    
+    for i, stock in enumerate(stocks):
+        ax = axes[i//2, i%2]
+        df = stock_data[stock]
+        
+        # Create scatter plot
+        colors = df['label_num'].map({-1: 'red', 0: 'gray', 1: 'green'})
+        scatter = ax.scatter(df['label_num'], df['movement_pct'], 
+                           c=colors, alpha=0.6, s=30)
+        
+        # Add trend line
+        z = np.polyfit(df['label_num'], df['movement_pct'], 1)
+        p = np.poly1d(z)
+        ax.plot(df['label_num'], p(df['label_num']), 
+                "r--", alpha=0.8, linewidth=2)
+        
+        # Calculate correlation
+        corr = df['label_num'].corr(df['movement_pct'])
+        
+        ax.set_xlabel('Sentiment Score (-1: Negative, 0: Neutral, 1: Positive)')
+        ax.set_ylabel('Price Movement (%)')
+        ax.set_title(f'{stock} (Correlation: {corr:.3f})')
+        ax.grid(True, alpha=0.3)
+        ax.set_xticks([-1, 0, 1])
+    
+    plt.tight_layout()
+    plt.show()
+
+def create_time_series_analysis(stock_data):
+    """Create time series visualization of sentiment and stock movement"""
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=[f'{stock} - {SECTOR_MAPPING[stock]}' for stock in stock_data.keys()],
+        specs=[[{"secondary_y": True}, {"secondary_y": True}],
+               [{"secondary_y": True}, {"secondary_y": True}]]
+    )
+    
+    colors = ['red', 'blue', 'green', 'orange']
+    stocks = list(stock_data.keys())
+    
+    for i, stock in enumerate(stocks):
+        row = i // 2 + 1
+        col = i % 2 + 1
+        df = stock_data[stock].copy()
+        
+        # Resample to weekly averages for cleaner visualization
+        df_weekly = df.set_index('date').resample('W').agg({
+            'label_num': 'mean',
+            'movement_pct': 'mean'
+        }).reset_index()
+        
+        # Add sentiment trace
+        fig.add_trace(
+            go.Scatter(x=df_weekly['date'], y=df_weekly['label_num'],
+                      name=f'{stock} Sentiment', line=dict(color=colors[i])),
+            row=row, col=col
+        )
+        
+        # Add movement trace on secondary y-axis
+        fig.add_trace(
+            go.Scatter(x=df_weekly['date'], y=df_weekly['movement_pct'],
+                      name=f'{stock} Movement %', line=dict(color=colors[i], dash='dash')),
+            row=row, col=col, secondary_y=True
+        )
+    
+    # Update layout
+    fig.update_layout(height=800, title_text="Time Series: Sentiment vs Stock Movement (Weekly Averages)")
+    
+    # Update y-axes labels
+    for i in range(1, 3):
+        for j in range(1, 3):
+            fig.update_yaxes(title_text="Avg Sentiment", row=i, col=j)
+            fig.update_yaxes(title_text="Avg Movement %", row=i, col=j, secondary_y=True)
+    
+    fig.show()
+
+def analyze_sector_trends(stock_data):
+    """Analyze and visualize sector-wise trends"""
+    
+    # Combine all data with sector information
+    combined_data = []
+    for stock, df in stock_data.items():
+        df_copy = df.copy()
+        df_copy['Stock'] = stock
+        df_copy['Sector'] = SECTOR_MAPPING[stock]
+        combined_data.append(df_copy)
+    
+    all_data = pd.concat(combined_data, ignore_index=True)
+    
+    # 1. Sector-wise sentiment distribution
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Average sentiment by sector
+    sector_sentiment = all_data.groupby('Sector')['label_num'].mean().sort_values(ascending=True)
+    bars1 = ax1.barh(range(len(sector_sentiment)), sector_sentiment.values, 
+                     color=['#FF6B6B' if x < 0 else '#4ECDC4' if x == 0 else '#45B7D1' 
+                            for x in sector_sentiment.values])
+    ax1.set_yticks(range(len(sector_sentiment)))
+    ax1.set_yticklabels(sector_sentiment.index)
+    ax1.set_xlabel('Average Sentiment Score')
+    ax1.set_title('Average Sentiment by Sector', fontweight='bold')
+    ax1.axvline(x=0, color='black', linestyle='--', alpha=0.7)
+    ax1.grid(axis='x', alpha=0.3)
+    
+    # Add value labels on bars
+    for i, v in enumerate(sector_sentiment.values):
+        ax1.text(v + 0.01 if v >= 0 else v - 0.01, i, f'{v:.3f}', 
+                va='center', ha='left' if v >= 0 else 'right')
+    
+    # Average movement by sector
+    sector_movement = all_data.groupby('Sector')['movement_pct'].mean().sort_values(ascending=True)
+    bars2 = ax2.barh(range(len(sector_movement)), sector_movement.values,
+                     color=['#FF6B6B' if x < 0 else '#45B7D1' for x in sector_movement.values])
+    ax2.set_yticks(range(len(sector_movement)))
+    ax2.set_yticklabels(sector_movement.index)
+    ax2.set_xlabel('Average Price Movement (%)')
+    ax2.set_title('Average Price Movement by Sector', fontweight='bold')
+    ax2.axvline(x=0, color='black', linestyle='--', alpha=0.7)
+    ax2.grid(axis='x', alpha=0.3)
+    
+    # Add value labels on bars
+    for i, v in enumerate(sector_movement.values):
+        ax2.text(v + 0.01 if v >= 0 else v - 0.01, i, f'{v:.3f}%', 
+                va='center', ha='left' if v >= 0 else 'right')
+    
+    plt.suptitle('Sector-wise Analysis: Sentiment and Price Movement', fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+    
+    # 2. Correlation heatmap by sector and stock
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Calculate correlations
+    correlations = []
+    for stock, df in stock_data.items():
+        corr = df['label_num'].corr(df['movement_pct'])
+        correlations.append({
+            'Stock': stock,
+            'Sector': SECTOR_MAPPING[stock],
+            'Correlation': corr
+        })
+    
+    corr_df = pd.DataFrame(correlations)
+    pivot_corr = corr_df.pivot_table(values='Correlation', index='Sector', columns='Stock', fill_value=0)
+    
+    # Create heatmap
+    sns.heatmap(pivot_corr, annot=True, cmap='RdBu_r', center=0, 
+                square=True, linewidths=0.5, cbar_kws={"shrink": .8})
+    ax.set_title('Sentiment-Movement Correlation by Stock and Sector', fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+    
+    return corr_df
+
+def create_movement_distribution_by_sentiment(stock_data):
+    """Create box plots showing movement distribution by sentiment"""
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('Price Movement Distribution by Sentiment Category', fontsize=16, fontweight='bold')
+    
+    stocks = list(stock_data.keys())
+    
+    for i, stock in enumerate(stocks):
+        ax = axes[i//2, i%2]
+        df = stock_data[stock]
+        
+        # Create box plot
+        sentiment_labels = ['Negative', 'Neutral', 'Positive']
+        sentiment_values = [-1, 0, 1]
+        
+        data_for_box = []
+        labels_for_box = []
+        
+        for label, value in zip(sentiment_labels, sentiment_values):
+            movement_data = df[df['label_num'] == value]['movement_pct']
+            data_for_box.append(movement_data)
+            labels_for_box.append(f'{label}\n(n={len(movement_data)})')
+        
+        box_plot = ax.boxplot(data_for_box, labels=labels_for_box, patch_artist=True)
+        
+        # Color the boxes
+        colors = ['#FF6B6B', '#FFA07A', '#45B7D1']
+        for patch, color in zip(box_plot['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+        
+        ax.set_ylabel('Price Movement (%)')
+        ax.set_title(f'{stock} - {SECTOR_MAPPING[stock]}')
+        ax.grid(axis='y', alpha=0.3)
+        ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    plt.show()
+
+def generate_summary_statistics(stock_data):
+    """Generate summary statistics for the analysis"""
+    print("="*60)
+    print("WEEK 4 EDA SUMMARY REPORT")
+    print("="*60)
+    
+    # Overall statistics
+    total_records = sum(len(df) for df in stock_data.values())
+    print(f"\nDATASET OVERVIEW:")
+    print(f"Total records analyzed: {total_records:,}")
+    print(f"Stocks analyzed: {list(stock_data.keys())}")
+    print(f"Sectors covered: {list(set(SECTOR_MAPPING.values()))}")
+    
+    # Sentiment distribution
+    print(f"\nSENTIMENT DISTRIBUTION:")
+    all_sentiment = pd.concat([df['label'] for df in stock_data.values()])
+    sentiment_dist = all_sentiment.value_counts(normalize=True)
+    for sentiment, pct in sentiment_dist.items():
+        print(f"{sentiment.capitalize()}: {pct:.1%}")
+    
+    # Correlation analysis
+    print(f"\nSENTIMENT-MOVEMENT CORRELATIONS:")
+    for stock, df in stock_data.items():
+        corr = df['label_num'].corr(df['movement_pct'])
+        print(f"{stock} ({SECTOR_MAPPING[stock]}): {corr:.3f}")
+    
+    # Sector analysis
+    print(f"\nSECTOR ANALYSIS:")
+    combined_data = []
+    for stock, df in stock_data.items():
+        df_copy = df.copy()
+        df_copy['Sector'] = SECTOR_MAPPING[stock]
+        combined_data.append(df_copy)
+    
+    all_data = pd.concat(combined_data, ignore_index=True)
+    sector_stats = all_data.groupby('Sector').agg({
+        'label_num': 'mean',
+        'movement_pct': ['mean', 'std']
+    }).round(3)
+    
+    print(sector_stats)
+    
+    print("\nKEY INSIGHTS:")
+    print("• Technology stocks show different sentiment patterns than other sectors")
+    print("• Correlation strength varies significantly across stocks")
+    print("• Some sectors may be more sentiment-sensitive than others")
+    print("• Further analysis needed to establish predictive relationships")
+
+def main():
+    """Main execution function"""
+    print("Starting Week 4 EDA Analysis...")
+    print("Loading datasets...")
+    
+    # Load data
+    stock_data = load_stock_data()
+    
+    if not stock_data:
+        print("No data found. Please ensure merged CSV files are in the correct directory.")
+        return
+    
+    print("\nCreating visualizations...")
+    
+    # Task 1: Create initial visualizations - sentiment vs price movement
+    print("\n1. Creating sentiment distribution plots...")
+    create_sentiment_distribution_plot(stock_data)
+    
+    print("2. Creating sentiment vs movement scatter plots...")
+    create_sentiment_vs_movement_scatter(stock_data)
+    
+    print("3. Creating time series analysis...")
+    create_time_series_analysis(stock_data)
+    
+    print("4. Creating movement distribution by sentiment...")
+    create_movement_distribution_by_sentiment(stock_data)
+    
+    # Task 2: Identify sector-wise trends
+    print("\n5. Analyzing sector-wise trends...")
+    correlation_results = analyze_sector_trends(stock_data)
+    
+    # Generate summary
+    print("\n6. Generating summary statistics...")
+    generate_summary_statistics(stock_data)
+    
+    print("\n" + "="*60)
+    print("WEEK 4 EDA ANALYSIS COMPLETE")
+    print("="*60)
+    print("\nNext Steps for Week 5:")
+    print("• Use these insights to inform advanced modeling")
+    print("• Focus on stocks/sectors showing strongest correlations")
+    print("• Consider sector-specific features in modeling")
+    print("• Explore time-based patterns identified in visualizations")
+
+if __name__ == "__main__":
+    main()
